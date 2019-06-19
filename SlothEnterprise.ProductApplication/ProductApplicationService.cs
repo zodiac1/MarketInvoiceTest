@@ -1,63 +1,74 @@
 ﻿using System;
-using SlothEnterprise.External;
+using log4net;
+using System.Reflection;
 using SlothEnterprise.External.V1;
+using SlothEnterprise.ProductApplication.Mediator;
 using SlothEnterprise.ProductApplication.Applications;
-using SlothEnterprise.ProductApplication.Products;
 
 namespace SlothEnterprise.ProductApplication
 {
-    public class ProductApplicationService
+    public interface IProductApplicationService
     {
-        private readonly ISelectInvoiceService _selectInvoiceService;
-        private readonly IConfidentialInvoiceService _confidentialInvoiceWebService;
-        private readonly IBusinessLoansService _businessLoansService;
+        IServicesMediator ServicesMediator { get; set; }
+        int SubmitApplicationFor(ISellerApplication application);
+    }
 
+    public class ProductApplicationService : IProductApplicationService
+    {
+        private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
+        public IServicesMediator ServicesMediator { get; set; }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="selectInvoiceService"></param>
+        /// <param name="confidentialInvoiceWebService"></param>
+        /// <param name="businessLoansService"></param>
         public ProductApplicationService(ISelectInvoiceService selectInvoiceService, IConfidentialInvoiceService confidentialInvoiceWebService, IBusinessLoansService businessLoansService)
         {
-            _selectInvoiceService = selectInvoiceService;
-            _confidentialInvoiceWebService = confidentialInvoiceWebService;
-            _businessLoansService = businessLoansService;
+            ServicesMediator = new ServicesMediator();
+
+            ServicesMediator.Add(typeof(ISelectInvoiceService), selectInvoiceService);
+            ServicesMediator.Add(typeof(IConfidentialInvoiceService), confidentialInvoiceWebService);
+            ServicesMediator.Add(typeof(IBusinessLoansService), businessLoansService);
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="application"></param>
+        /// <returns></returns>
         public int SubmitApplicationFor(ISellerApplication application)
         {
-
-            if (application.Product is SelectiveInvoiceDiscount sid)
+            try
             {
-                return _selectInvoiceService.SubmitApplicationFor(application.CompanyData.Number.ToString(), sid.InvoiceAmount, sid.AdvancePercentage);
-            }
-
-            if (application.Product is ConfidentialInvoiceDiscount cid)
-            {
-                var result = _confidentialInvoiceWebService.SubmitApplicationFor(
-                    new CompanyDataRequest
+                if (application != null && application.Product != null && application.CompanyData != null && ServicesMediator != null)
+                {
+                    if (application.Product is ProductServices.IServiceProvider)
                     {
-                        CompanyFounded = application.CompanyData.Founded,
-                        CompanyNumber = application.CompanyData.Number,
-                        CompanyName = application.CompanyData.Name,
-                        DirectorName = application.CompanyData.DirectorName
-                    }, cid.TotalLedgerNetworth, cid.AdvancePercentage, cid.VatRate);
+                        ProductServices.IServiceProvider serviceProvider =
+                            application.Product as ProductServices.IServiceProvider;
 
-                return (result.Success) ? result.ApplicationId ?? -1 : -1;
+                        ProductServices.IProductService productService = serviceProvider.GetProductService(ServicesMediator);
+
+                        return productService.SubmitApplication(application.CompanyData);
+                    }
+                    else
+                    {
+                        throw new NotSupportedException();
+                    }
+                }
+                else
+                {
+                    throw new ArgumentNullException();
+                }
             }
-
-            if (application.Product is BusinessLoans loans)
+            catch (Exception ex)
             {
-                var result = _businessLoansService.SubmitApplicationFor(new CompanyDataRequest
-                {
-                    CompanyFounded = application.CompanyData.Founded,
-                    CompanyNumber = application.CompanyData.Number,
-                    CompanyName = application.CompanyData.Name,
-                    DirectorName = application.CompanyData.DirectorName
-                }, new LoansRequest
-                {
-                    InterestRatePerAnnum = loans.InterestRatePerAnnum,
-                    LoanAmount = loans.LoanAmount
-                });
-                return (result.Success) ? result.ApplicationId ?? -1 : -1;
+                log.Error(ex.ToString());
+                throw;
             }
-
-            throw new InvalidOperationException();
         }
     }
 }
